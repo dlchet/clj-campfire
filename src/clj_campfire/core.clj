@@ -139,17 +139,35 @@
                  (str "room/" (room-id settings room-name) "/recent.json")
                  :query options))))
 
+;;(defn stream-messages
+;;  "Calls handler passing a lazy seq of messages as the single argument"
+;;  [settings room-name handler]
+;;  (let [streaming-url (build-url (assoc settings :sub-domain "streaming")
+;;                                 (str "room/"
+;;                                      (room-id settings room-name)
+;;                                      "/live.json"))]
+;;    (with-open [client (get-client settings :preemptive true)]
+;;      (let [response (http/stream-seq client :get streaming-url :timeout -1)]
+;;        (handler
+;;         (filter identity
+;;                 (map (fn [chunk] (-> chunk json/parse-string keywordize-keys))
+;;                      (http/string response))))
+;;        (http/cancel response)))))
+;;
 (defn stream-messages
-  "Calls handler passing a lazy seq of messages as the single argument"
+  "Calls handler on every message map while ignoring blank chunks"
   [settings room-name handler]
   (let [streaming-url (build-url (assoc settings :sub-domain "streaming")
-                                 (str "room/"
-                                      (room-id settings room-name)
+                                 (str "room/" 
+                                      (room-id settings room-name) 
                                       "/live.json"))]
     (with-open [client (get-client settings :preemptive true)]
-      (let [response (http/stream-seq client :get streaming-url :timeout -1)]
-        (handler
-         (filter identity
-                 (map (fn [chunk] (-> chunk json/parse-string keywordize-keys))
-                      (http/string response))))
-        (http/cancel response)))))
+      (let [response (http/stream-seq client :get streaming-url)
+            chunks (take 10 (http/string response))]
+        (doseq [chunk chunks]
+          (let [message (-> chunk json/parse-string keyword-keys)]
+            (if message
+              (do (println "Recieved message: " message)
+                  (handler message)))))
+        (http/cancel response)))
+    (recur settings room-name handler)))
